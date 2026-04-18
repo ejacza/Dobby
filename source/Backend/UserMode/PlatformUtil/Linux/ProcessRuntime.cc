@@ -4,6 +4,8 @@
 #include <dlfcn.h>
 #include <link.h>
 #include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include <string>
 #include <string.h>
@@ -144,10 +146,17 @@ static stl::vector<RuntimeModule> &get_process_map_with_proc_maps() {
     }
 
     // check header section permission
-    if (strcmp(permissions, "r--p") != 0 && strcmp(permissions, "r-xp") != 0)
+    if (permissions[0] != 'r')
       continue;
 
     // check elf magic number
+    // Use msync to check if memory is accessible to prevent SIGSEGV on Android 14+
+    auto page_size = sysconf(_SC_PAGESIZE);
+    auto page_start = (void *)((addr_t)region_start & ~(page_size - 1));
+    if (msync(page_start, page_size, MS_ASYNC) == -1 && errno == ENOMEM) {
+      continue;
+    }
+
     ElfW(Ehdr) *header = (ElfW(Ehdr) *)region_start;
     if (memcmp(header->e_ident, ELFMAG, SELFMAG) != 0) {
       continue;
@@ -212,12 +221,13 @@ static stl::vector<RuntimeModule> get_process_map_with_linker_iterator() {
 #endif
 
 const stl::vector<RuntimeModule> &ProcessRuntime::getModuleMap() {
-#if defined(__LP64__) && 0
-  // TODO: won't resolve main binary
-  return get_process_map_with_linker_iterator();
-#else
-  return get_process_map_with_proc_maps();
+#if defined(__LP64__)
+  static stl::vector<RuntimeModule> *ProcessModuleMap = nullptr;
+  if (ProcessModuleMap == nullptr) ProcessModuleMap = new stl::vector<RuntimeModule>();
+  *ProcessModuleMap = get_process_map_with_linker_iterator();
+  if (!ProcessModuleMap->empty()) return *ProcessModuleMap;
 #endif
+  return get_process_map_with_proc_maps();
 }
 
 RuntimeModule ProcessRuntime::getModule(const char *name) {
