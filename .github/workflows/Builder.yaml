@@ -5,6 +5,8 @@ on:
     branches:
       - master
 
+permissions: write-all
+
 env:
   CMAKE_VERSION: 3.25.2
   LLVM_VERSION: 15.0.6
@@ -19,6 +21,7 @@ jobs:
 
     - name: delete latest release
       uses: dev-drprasad/delete-tag-and-release@v0.2.1
+      continue-on-error: true
       with:
         delete_release: true
         tag_name: latest
